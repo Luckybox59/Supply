@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual envs
+.venv/
+venv/
+ENV/
+
+# Editors/IDEs
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local config & secrets
+secrets.json
+.env
+
+# App artifacts
+*_extracted.json
+Сравнение_*.md
+*Карточка заказа.json
+debug_data.json
+
+# Logs
+logs/
+*.log

@@ -1,0 +1,7 @@
+{
+  "openrouter_model": "qwen/qwen-2.5-72b-instruct:free",
+  "to_email_default": "Chchairs@mail.ru",
+  "to_email_test": "ligabyakov@gmail.com",
+  "subject_suffix_peredelka": "(#ПЕР)",
+  "folder_paid_label": ", Оплата"
+}

@@ -1,0 +1,20 @@
+pandas>=2.0.0
+numpy>=1.26.0
+requests>=2.31.0
+pdf2image>=1.17.0
+pillow>=10.0.0
+openpyxl>=3.1.0
+# xlrd 1.2.0 нужен для чтения старых .xls (в 2.x поддержку .xls убрали)
+xlrd==1.2.0
+pdfplumber>=0.10.0
+Jinja2>=3.1.0
+pydantic>=1.10,<2.0
+# easyocr подтянет torch, установка может занять время
+easyocr>=1.7.1
+# метрики производительности (используется logging_setup)
+psutil>=5.9.0
+
+# Тестирование и разработка
+pytest>=7.0.0
+pytest-mock>=3.10.0
+pytest-cov>=4.0.0

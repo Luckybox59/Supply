@@ -1,0 +1,7 @@
+Windows Registry Editor Version 5.00
+
+; Удаление пункта контекстного меню на фоне папки
+[-HKEY_CLASSES_ROOT\Directory\Background\shell\Run_ParserGUI]
+
+; Дополнительно: удаление пункта на самой папке (если ранее устанавливался)
+[-HKEY_CLASSES_ROOT\Directory\shell\Run_ParserGUI]

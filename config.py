@@ -82,6 +82,7 @@ SMTP_PORT: int = int(_get("SMTP_PORT", 465))  # Порт SMTP
 SMTP_USER: str | None = _get("SMTP_USER")  # Пользователь SMTP
 SMTP_PASSWORD: str | None = _get("SMTP_PASSWORD")  # Пароль SMTP
 FROM_EMAIL: str | None = _get("FROM_EMAIL", SMTP_USER if SMTP_USER else None)  # Адрес отправителя
+FROM_NAME: str = _get_setting("from_name")  # Отображаемое имя отправителя
 
 # Метаданные приложения для OpenRouter (идентификация клиента)
 APP_REFERRER: str = _get("OPENROUTER_REFERRER", "https://local.parser.app")  # URL приложения/реферера

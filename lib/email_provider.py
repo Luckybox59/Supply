@@ -65,15 +65,15 @@ def is_google_account(email: str) -> bool:
     return detect_email_provider(email) == 'google'
 
 
-def should_use_gmail_api(email: str) -> bool:
+def should_use_gmail_api_for_search(email: str) -> bool:
     """
-    Определяет, следует ли использовать Gmail API для данного email.
+    Определяет, следует ли использовать Gmail API для поиска писем.
     
     Args:
         email: Email адрес
         
     Returns:
-        True если следует использовать Gmail API
+        True если следует использовать Gmail API для поиска
     """
     # Проверяем настройки
     use_gmail_api = getattr(config, 'USE_GMAIL_API', True)
@@ -82,6 +82,35 @@ def should_use_gmail_api(email: str) -> bool:
     
     # Проверяем, что это Google аккаунт
     return is_google_account(email)
+
+
+def should_use_smtp_for_sending(email: str) -> bool:
+    """
+    Всегда возвращает True - вся отправка через SMTP.
+    
+    Args:
+        email: Email адрес
+        
+    Returns:
+        True всегда - отправка через SMTP для всех провайдеров
+    """
+    return True
+
+
+def should_use_gmail_api(email: str) -> bool:
+    """
+    Устарела: Используйте should_use_gmail_api_for_search() вместо этой.
+    
+    Args:
+        email: Email адрес
+        
+    Returns:
+        True если следует использовать Gmail API (только для поиска)
+    """
+    import warnings
+    warnings.warn("should_use_gmail_api() is deprecated. Use should_use_gmail_api_for_search() instead.",
+                  DeprecationWarning, stacklevel=2)
+    return should_use_gmail_api_for_search(email)
 
 
 def get_smtp_settings(email: str) -> dict:

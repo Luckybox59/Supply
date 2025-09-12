@@ -19,6 +19,8 @@ ENV/
 Thumbs.db
 
 # Local config & secrets
+gmail_token.json
+gmail_credentials.json
 secrets
 secrets.json
 .env

@@ -1,9 +1,7 @@
 """
 Унифицированный сервис для отправки писем.
 
-Автоматически выбирает оптимальный метод отправки:
-- Gmail API для Google аккаунтов
-- SMTP для остальных провайдеров
+Всегда использует SMTP для отправки писем, независимо от провайдера.
 """
 
 import os
@@ -13,8 +11,7 @@ from email.message import EmailMessage
 from typing import List, Optional, Dict, Any
 from logging_setup import get_logger
 import config
-from .email_provider import should_use_gmail_api, get_smtp_settings, normalize_email
-from .gmail_service import GmailService
+from .email_provider import get_smtp_settings, normalize_email
 
 logger = get_logger(__name__)
 
@@ -33,27 +30,17 @@ class UnifiedEmailSender:
         if not self.from_email:
             raise ValueError("Email отправителя не задан. Укажите FROM_EMAIL в конфигурации.")
         
+        # Gmail API больше не используется для отправки
         self.gmail_service = None
-        self._init_gmail_service()
-    
-    def _init_gmail_service(self):
-        """Инициализирует Gmail сервис если нужно."""
-        if should_use_gmail_api(self.from_email):
-            try:
-                self.gmail_service = GmailService()
-                logger.info("Gmail API сервис инициализирован")
-            except Exception as e:
-                logger.warning(f"Не удалось инициализировать Gmail API: {e}")
-                self.gmail_service = None
     
     def send_email(self, 
                    to_email: str,
                    subject: str,
                    body: str,
                    attachments: Optional[List[str]] = None,
-                   from_name: str = "Игорь Бяков") -> bool:
+                   from_name: Optional[str] = None) -> bool:
         """
-        Отправляет письмо, выбирая оптимальный метод.
+        Отправляет письмо через SMTP.
         
         Args:
             to_email: Email получателя
@@ -64,6 +51,9 @@ class UnifiedEmailSender:
             
         Returns:
             True если письмо отправлено успешно
+            
+        Raises:
+            RuntimeError: Если возникла ошибка при отправке письма
         """
         if not subject.strip():
             raise ValueError("Тема письма не может быть пустой")
@@ -73,6 +63,7 @@ class UnifiedEmailSender:
             raise ValueError("Email получателя не может быть пустым")
         
         to_email = normalize_email(to_email)
+        display_name = from_name or getattr(config, 'FROM_NAME', 'Игорь Бяков')
         
         # Проверяем существование файлов вложений
         if attachments:
@@ -80,27 +71,20 @@ class UnifiedEmailSender:
         
         start_time = time.perf_counter()
         
-        # Пытаемся отправить через Gmail API если возможно
-        if self.gmail_service and should_use_gmail_api(self.from_email):
-            try:
-                message_id = self.gmail_service.send_email(
-                    to_email=to_email,
-                    subject=subject,
-                    body=body,
-                    attachments=attachments
-                )
+        # Всегда используем SMTP для отправки
+        try:
+            result = self._send_via_smtp(to_email, subject, body, attachments, display_name)
+            
+            if result:
+                elapsed = time.perf_counter() - start_time
+                logger.info(f"Письмо отправлено через SMTP за {elapsed:.2f}с")
+            else:
+                raise RuntimeError(f"Не удалось отправить письмо через SMTP на {to_email}")
                 
-                if message_id:
-                    elapsed = time.perf_counter() - start_time
-                    logger.info(f"Письмо отправлено через Gmail API за {elapsed:.2f}с")
-                    return True
-                else:
-                    logger.warning("Gmail API не вернул ID сообщения, пробуем SMTP")
-            except Exception as e:
-                logger.warning(f"Ошибка отправки через Gmail API: {e}, пробуем SMTP")
-        
-        # Fallback на SMTP
-        return self._send_via_smtp(to_email, subject, body, attachments, from_name)
+            return result
+        except Exception as e:
+            logger.error(f"Ошибка отправки письма: {e}")
+            raise RuntimeError(f"Не удалось отправить письмо: {e}") from e
     
     def send_reply(self,
                    to_email: str,
@@ -109,9 +93,9 @@ class UnifiedEmailSender:
                    original_message_id: Optional[str] = None,
                    references: Optional[List[str]] = None,
                    attachments: Optional[List[str]] = None,
-                   from_name: str = "Игорь Бяков") -> bool:
+                   from_name: Optional[str] = None) -> bool:
         """
-        Отправляет ответ на письмо.
+        Отправляет ответ на письмо через SMTP.
         
         Args:
             to_email: Email получателя
@@ -124,8 +108,12 @@ class UnifiedEmailSender:
             
         Returns:
             True если ответ отправлен успешно
+            
+        Raises:
+            RuntimeError: Если возникла ошибка при отправке ответа
         """
         to_email = normalize_email(to_email)
+        display_name = from_name or getattr(config, 'FROM_NAME', 'Игорь Бяков')
         
         # Проверяем вложения
         if attachments:
@@ -133,39 +121,32 @@ class UnifiedEmailSender:
         
         start_time = time.perf_counter()
         
-        # Пытаемся отправить ответ через Gmail API
-        if self.gmail_service and should_use_gmail_api(self.from_email) and original_message_id:
-            try:
-                reply_id = self.gmail_service.send_reply(
-                    original_message_id=original_message_id,
-                    reply_subject=subject,
-                    reply_body=body,
-                    to_email=to_email,
-                    attachments=attachments
-                )
+        # Всегда используем SMTP для отправки ответа
+        try:
+            result = self._send_reply_via_smtp(
+                to_email, subject, body, original_message_id, references, attachments, display_name)
+            
+            if result:
+                elapsed = time.perf_counter() - start_time
+                logger.info(f"Ответ отправлен через SMTP за {elapsed:.2f}с")
+            else:
+                raise RuntimeError(f"Не удалось отправить ответ через SMTP на {to_email}")
                 
-                if reply_id:
-                    elapsed = time.perf_counter() - start_time
-                    logger.info(f"Ответ отправлен через Gmail API за {elapsed:.2f}с")
-                    return True
-                else:
-                    logger.warning("Gmail API не вернул ID ответа, пробуем SMTP")
-            except Exception as e:
-                logger.warning(f"Ошибка отправки ответа через Gmail API: {e}, пробуем SMTP")
-        
-        # Fallback на SMTP
-        return self._send_reply_via_smtp(
-            to_email, subject, body, original_message_id, references, attachments, from_name)
+            return result
+        except Exception as e:
+            logger.error(f"Ошибка отправки ответа: {e}")
+            raise RuntimeError(f"Не удалось отправить ответ: {e}") from e
     
     def _send_via_smtp(self,
                        to_email: str,
                        subject: str,
                        body: str,
                        attachments: Optional[List[str]] = None,
-                       from_name: str = "Игорь Бяков") -> bool:
+                       from_name: Optional[str] = None) -> bool:
         """Отправляет письмо через SMTP."""
         try:
             smtp_settings = get_smtp_settings(self.from_email)
+            display_name = from_name or getattr(config, 'FROM_NAME', 'Игорь Бяков')
             
             # Получаем данные аутентификации
             smtp_user = config.SMTP_USER
@@ -177,7 +158,7 @@ class UnifiedEmailSender:
             # Создаем сообщение
             msg = EmailMessage()
             msg['Subject'] = subject
-            msg['From'] = f'{from_name} <{self.from_email}>'
+            msg['From'] = f'{display_name} <{self.from_email}>'
             msg['To'] = to_email
             msg.set_content(body)
             
@@ -203,7 +184,7 @@ class UnifiedEmailSender:
             
         except Exception as e:
             logger.error(f"Ошибка отправки через SMTP: {e}")
-            return False
+            raise
     
     def _send_reply_via_smtp(self,
                             to_email: str,
@@ -212,10 +193,11 @@ class UnifiedEmailSender:
                             original_message_id: Optional[str] = None,
                             references: Optional[List[str]] = None,
                             attachments: Optional[List[str]] = None,
-                            from_name: str = "Игорь Бяков") -> bool:
+                            from_name: Optional[str] = None) -> bool:
         """Отправляет ответ через SMTP."""
         try:
             smtp_settings = get_smtp_settings(self.from_email)
+            display_name = from_name or getattr(config, 'FROM_NAME', 'Игорь Бяков')
             
             # Получаем данные аутентификации
             smtp_user = config.SMTP_USER
@@ -227,7 +209,7 @@ class UnifiedEmailSender:
             # Создаем сообщение
             msg = EmailMessage()
             msg['Subject'] = subject
-            msg['From'] = f'{from_name} <{self.from_email}>'
+            msg['From'] = f'{display_name} <{self.from_email}>'
             msg['To'] = to_email
             
             # Добавляем заголовки для ответа
@@ -265,7 +247,7 @@ class UnifiedEmailSender:
             
         except Exception as e:
             logger.error(f"Ошибка отправки ответа через SMTP: {e}")
-            return False
+            raise
     
     def _validate_attachments(self, attachments: List[str]):
         """Проверяет существование файлов вложений."""
@@ -294,21 +276,15 @@ class UnifiedEmailSender:
     
     def test_connection(self) -> bool:
         """
-        Тестирует подключение к почтовому сервису.
+        Тестирует подключение к почтовому сервису через SMTP.
         
         Returns:
             True если подключение успешно
+            
+        Raises:
+            RuntimeError: Если возникла ошибка при тестировании подключения
         """
-        # Тестируем Gmail API если возможно
-        if self.gmail_service and should_use_gmail_api(self.from_email):
-            try:
-                if self.gmail_service.authenticate():
-                    logger.info("Gmail API подключение успешно")
-                    return True
-            except Exception as e:
-                logger.warning(f"Ошибка тестирования Gmail API: {e}")
-        
-        # Тестируем SMTP
+        # Всегда тестируем только SMTP
         try:
             smtp_settings = get_smtp_settings(self.from_email)
             smtp_user = config.SMTP_USER
@@ -316,7 +292,7 @@ class UnifiedEmailSender:
             
             if not smtp_user or not smtp_password:
                 logger.warning("SMTP credentials не заданы")
-                return False
+                raise RuntimeError("SMTP credentials не заданы")
             
             if smtp_settings.get('use_ssl', False):
                 smtp_class = smtplib.SMTP_SSL
@@ -334,4 +310,4 @@ class UnifiedEmailSender:
             
         except Exception as e:
             logger.error(f"Ошибка тестирования SMTP: {e}")
-            return False
+            raise RuntimeError(f"Не удалось протестировать SMTP подключение: {e}") from e

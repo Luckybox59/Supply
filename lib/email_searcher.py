@@ -15,7 +15,7 @@ from email.header import decode_header
 from email.utils import parsedate_to_datetime
 from logging_setup import get_logger
 import config
-from .email_provider import should_use_gmail_api, get_imap_settings, normalize_email
+from .email_provider import should_use_gmail_api_for_search, get_imap_settings, normalize_email
 from .gmail_service import GmailService
 from models.schemas import EmailInfo
 
@@ -41,7 +41,8 @@ class UnifiedEmailSearcher:
     
     def _init_gmail_service(self):
         """Инициализирует Gmail сервис если нужно."""
-        if should_use_gmail_api(self.account_email):
+        # Используем новую функцию, специфичную для поиска
+        if should_use_gmail_api_for_search(self.account_email):
             try:
                 self.gmail_service = GmailService()
                 logger.info("Gmail API сервис для поиска инициализирован")
@@ -65,8 +66,9 @@ class UnifiedEmailSearcher:
         
         to_email = normalize_email(to_email)
         
-        # Пытаемся найти через Gmail API если возможно
-        if self.gmail_service and should_use_gmail_api(self.account_email):
+        # Пытаемся найти через Gmail API если возможно (только для поиска)
+        # Используем новую функцию, специфичную для поиска
+        if self.gmail_service and should_use_gmail_api_for_search(self.account_email):
             try:
                 return self._search_via_gmail_api(to_email, subject)
             except Exception as e:

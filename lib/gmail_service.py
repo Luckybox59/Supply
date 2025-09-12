@@ -53,8 +53,15 @@ class GmailService:
         if not GMAIL_API_AVAILABLE:
             raise RuntimeError("Gmail API библиотеки не установлены. Установите: pip install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client")
         
-        self.credentials_path = credentials_path or getattr(config, 'GMAIL_CREDENTIALS_PATH', 'gmail_credentials.json')
-        self.token_path = token_path or getattr(config, 'GMAIL_TOKEN_PATH', 'gmail_token.json')
+        # Получаем пути из конфигурации или используем переданные
+        creds_path = credentials_path or getattr(config, 'GMAIL_CREDENTIALS_PATH', 'gmail_credentials.json')
+        token_path_config = token_path or getattr(config, 'GMAIL_TOKEN_PATH', 'gmail_token.json')
+        
+        # Преобразуем в абсолютные пути относительно корня проекта
+        project_root = Path(__file__).parent.parent
+        self.credentials_path = str(project_root / creds_path) if not os.path.isabs(creds_path) else creds_path
+        self.token_path = str(project_root / token_path_config) if not os.path.isabs(token_path_config) else token_path_config
+        
         self.service = None
         self.credentials = None
     
@@ -115,7 +122,8 @@ class GmailService:
     
     def send_email(self, to_email: str, subject: str, body: str, 
                    attachments: Optional[List[str]] = None,
-                   reply_to_message_id: Optional[str] = None) -> Optional[str]:
+                   reply_to_message_id: Optional[str] = None,
+                   from_name: Optional[str] = None) -> Optional[str]:
         """
         Отправка письма через Gmail API.
         
@@ -125,6 +133,7 @@ class GmailService:
             body: Текст письма
             attachments: Список путей к файлам вложений
             reply_to_message_id: ID сообщения для ответа
+            from_name: Отображаемое имя отправителя
             
         Returns:
             ID отправленного сообщения или None при ошибке
@@ -134,7 +143,7 @@ class GmailService:
                 return None
         
         try:
-            message = self._create_message(to_email, subject, body, attachments, reply_to_message_id)
+            message = self._create_message(to_email, subject, body, attachments, reply_to_message_id, from_name)
             
             result = self.service.users().messages().send(
                 userId='me', body=message).execute()
@@ -199,7 +208,8 @@ class GmailService:
     
     def send_reply(self, original_message_id: str, reply_subject: str, 
                    reply_body: str, to_email: str,
-                   attachments: Optional[List[str]] = None) -> Optional[str]:
+                   attachments: Optional[List[str]] = None,
+                   from_name: Optional[str] = None) -> Optional[str]:
         """
         Отправка ответа на существующее письмо.
         
@@ -209,6 +219,7 @@ class GmailService:
             reply_body: Текст ответа
             to_email: Адрес получателя
             attachments: Список вложений
+            from_name: Отображаемое имя отправителя
             
         Returns:
             ID отправленного ответа или None при ошибке
@@ -222,7 +233,7 @@ class GmailService:
             
             # Создаем ответ
             reply_message = self._create_message(
-                to_email, reply_subject, reply_body, attachments, original_message_id)
+                to_email, reply_subject, reply_body, attachments, original_message_id, from_name)
             reply_message['threadId'] = thread_id
             
             result = self.service.users().messages().send(
@@ -238,14 +249,20 @@ class GmailService:
     
     def _create_message(self, to_email: str, subject: str, body: str,
                        attachments: Optional[List[str]] = None,
-                       reply_to_message_id: Optional[str] = None) -> Dict[str, Any]:
+                       reply_to_message_id: Optional[str] = None,
+                       from_name: Optional[str] = None) -> Dict[str, Any]:
         """Создает сообщение для Gmail API."""
+        # Получаем отображаемое имя отправителя
+        display_name = from_name or getattr(config, 'FROM_NAME', 'Игорь Бяков')
+        from_email = getattr(config, 'FROM_EMAIL') or getattr(config, 'SMTP_USER', '')
+        
         if attachments:
             message = MIMEMultipart()
         else:
             message = MIMEText(body, 'plain', 'utf-8')
             message['to'] = to_email
             message['subject'] = subject
+            message['from'] = f'"{display_name}" <{from_email}>'
             
             if reply_to_message_id:
                 message['In-Reply-To'] = reply_to_message_id
@@ -256,6 +273,7 @@ class GmailService:
         # Создаем сообщение с вложениями
         message['to'] = to_email
         message['subject'] = subject
+        message['from'] = f'"{display_name}" <{from_email}>'
         
         if reply_to_message_id:
             message['In-Reply-To'] = reply_to_message_id

@@ -11,15 +11,14 @@ import config
 from tkinter import filedialog
 import logging
 from logging_setup import TkTextHandler, get_logger
-from services import artifacts
 from typing import Optional, List
 
-# Импортируем логику из обновленной архитектуры
+# Прямое использование новой архитектуры lib/
 import parser as core
-from services.pipeline import run_processing
+from lib.data_processor import process_documents
 
 # Новые импорты для поиска веток в почте
-from email_service.searcher import EmailSearcher
+from lib.email_searcher import UnifiedEmailSearcher as EmailSearcher
 from models.schemas import EmailInfo
 from gui.components.email_branch_widget import EmailBranchWidget
 
@@ -75,13 +74,32 @@ class ParserGUI(tk.Tk):
             pass
 
     def _cleanup_generated_files(self, directory: str) -> int:
-        """Удаляет файлы, зарегистрированные в реестре артефактов.
+        """Удаляет сгенерированные файлы.
         Возвращает количество удалённых файлов.
         """
         count = 0
         try:
-            stats = artifacts.cleanup(delete_missing_ok=True)
-            count += len(stats.get("deleted", []))
+            import os
+            import glob
+            from pathlib import Path
+            
+            # Паттерны файлов для удаления
+            patterns = [
+                "*_extracted.json",
+                "comparison_report.md", 
+                "Карточка изделия.txt",
+                "*_analysis.json"
+            ]
+            
+            dir_path = Path(directory)
+            for pattern in patterns:
+                for file_path in dir_path.glob(pattern):
+                    try:
+                        file_path.unlink()
+                        count += 1
+                    except Exception:
+                        pass
+                        
         except Exception:
             pass
         return count
@@ -463,14 +481,19 @@ class ParserGUI(tk.Tk):
             self._validate_run_button()
 
     def _process_core(self):
-        # Делегируем обработку пайплайну
-        results, elapsed_time, report_content, json_file, report_file, card_file = run_processing(
-            cwd=self.cwd,
-            app_fname_selected=self.app_selected,
-            invoice_filenames_selected=self.invoices_selected,
+        # Используем новую архитектуру lib/
+        results, elapsed_time, report_content, output_files = process_documents(
+            work_dir=self.cwd,
+            application_file=self.app_selected,
+            invoice_files=self.invoices_selected,
             model=(self.selected_model or config.DEFAULT_MODEL),
-            use_template_for_report=bool(self.use_llm_report_var.get()),
+            use_llm_report=bool(self.use_llm_report_var.get())
         )
+        
+        # Преобразуем output_files для совместимости
+        json_file = output_files.get('json', '')
+        report_file = output_files.get('report', '')
+        card_file = output_files.get('card')
 
         if not results:
             self._logger.warning('Нет успешно обработанных счетов.')
@@ -563,25 +586,19 @@ class ParserGUI(tk.Tk):
                 from_email = getattr(config, 'FROM_EMAIL', smtp_user)
                 if not (smtp_user and smtp_password and from_email):
                     raise RuntimeError("Не заданы параметры SMTP (SMTP_USER/SMTP_PASSWORD/FROM_EMAIL). Укажите их в переменных окружения или config.")
-                # Используем новую архитектуру для отправки email
-                from email_service.sender import EmailSender
-                email_sender = EmailSender(
-                    smtp_server=smtp_server,
-                    smtp_port=smtp_port,
-                    smtp_user=smtp_user,
-                    smtp_password=smtp_password,
-                    from_email=from_email
-                )
+                # Используем новую архитектуру lib/ для отправки email
+                from lib.email_sender import UnifiedEmailSender
+                email_sender = UnifiedEmailSender(from_email)
                 
                 # Проверяем, есть ли выбранное письмо для ответа
                 if self.selected_reply_email:
                     # Отправляем ответ
-                    email_sender.send_reply_email(
+                    email_sender.send_reply(
+                        to_email=to_email,
                         subject=subject,
                         body=body,
-                        to_email=to_email,
-                        attachment_paths=attachments,
-                        reply_to_message_id=self.selected_reply_email.message_id,
+                        attachments=attachments,
+                        original_message_id=self.selected_reply_email.message_id,
                         references=self.selected_reply_email.references
                     )
                     try:
@@ -590,11 +607,11 @@ class ParserGUI(tk.Tk):
                         pass
                 else:
                     # Обычная отправка
-                    email_sender.send_email_with_attachments(
+                    email_sender.send_email(
+                        to_email=to_email,
                         subject=subject,
                         body=body,
-                        to_email=to_email,
-                        attachment_paths=attachments
+                        attachments=attachments
                     )
                     try:
                         self._logger.info("Отправлено новое письмо")

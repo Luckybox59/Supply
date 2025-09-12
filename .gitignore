@@ -19,6 +19,7 @@ ENV/
 Thumbs.db
 
 # Local config & secrets
+secrets
 secrets.json
 .env
 

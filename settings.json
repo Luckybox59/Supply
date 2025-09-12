@@ -1,7 +1,21 @@
 {
-  "openrouter_model": "qwen/qwen-2.5-72b-instruct:free",
-  "to_email_default": "Chchairs@mail.ru",
-  "to_email_test": "ligabyakov@gmail.com",
+  "to_email_default": "ligabyakov@gmail.com",
+  "to_email_test": "Chchairs@mail.ru",
   "subject_suffix_peredelka": "(#ПЕР)",
-  "folder_paid_label": ", Оплата"
+  "folder_paid_label": ", Оплата",
+  
+  "gmail_credentials_path": "gmail_credentials.json",
+  "gmail_token_path": "gmail_token.json",
+  "use_gmail_api": true,
+  "google_domains": ["gmail.com", "googlemail.com"],
+  
+  "email_search_limit": 50,
+  "email_search_days": 30,
+  
+  "report_template_path": "Шаблон отчета для Parser.md.j2",
+  "poppler_path": "D:/Program files/poppler-24.08.0/Library/bin",
+  
+  "log_level": "INFO",
+  "gui_window_size": "1100x800",
+  "log_widget_height_percent": 25
 }

@@ -4,10 +4,10 @@ import os
 import sys
 from typing import List, Optional, Tuple
 
-# Импорты новой архитектуры
-from services.pipeline import run_processing
-from email_service import EmailSender
-from core.exceptions import ParserError
+# Прямое использование новой архитектуры lib/
+from lib.data_processor import process_documents
+from lib.email_sender import UnifiedEmailSender
+from lib.utils import ParserError
 from logging_setup import get_logger
 import config
 
@@ -38,13 +38,18 @@ def main():
         all_files = pdf_files + excel_files
         logger.info(f"Найдено файлов для обработки: {len(all_files)}")
         
-        # Запускаем обработку
-        results, elapsed_time, report, json_file, report_file, card_file = run_processing(
-            cwd=cwd,
-            app_fname_selected=None,  # Пока не определяем заявку автоматически
-            invoice_filenames_selected=all_files,
+        # Используем новую функцию process_documents
+        results, elapsed_time, report, output_files = process_documents(
+            work_dir=cwd,
+            application_file=None,  # Пока не определяем заявку автоматически
+            invoice_files=all_files,
             model=None  # Используем модель по умолчанию
         )
+        
+        # Преобразуем output_files для логирования
+        json_file = output_files.get('json', '')
+        report_file = output_files.get('report', '')
+        card_file = output_files.get('card', '')
         
         logger.info(f"Обработка завершена за {elapsed_time:.2f} секунд")
         logger.info(f"Обработано файлов: {len(results)}")
@@ -82,15 +87,15 @@ def send_email_with_attachments(to_emails: List[str],
         True если отправка успешна, False иначе
     """
     try:
-        email_sender = EmailSender()
+        email_sender = UnifiedEmailSender()
         
         for to_email in to_emails:
-            # Используем корректный метод отправки с вложениями
-            email_sender.send_email_with_attachments(
+            # Используем новый метод отправки
+            email_sender.send_email(
+                to_email=to_email,
                 subject=subject,
                 body=body,
-                to_email=to_email,
-                attachment_paths=attachment_paths,
+                attachments=attachment_paths
             )
         
         logger.info(f"Письма успешно отправлены на {len(to_emails)} адресов")
@@ -127,37 +132,37 @@ def process_files_in_directory(directory: str,
             if file.lower().endswith(('.pdf', '.xls', '.xlsx')):
                 invoice_filenames.append(file)
     
-    return run_processing(
-        cwd=directory,
-        app_fname_selected=app_filename,
-        invoice_filenames_selected=invoice_filenames,
+    return process_documents(
+        work_dir=directory,
+        application_file=app_filename,
+        invoice_files=invoice_filenames,
         model=model,
     )
 
 
-# Обратная совместимость - экспортируем основные функции из старого API
+# Обратная совместимость - экспортируем основные функции из lib/
 def parse_project_folder(folder_path: str):
     """Обратная совместимость для парсинга информации о проекте."""
-    from core import parse_project_folder as core_parse_project_folder
-    return core_parse_project_folder(folder_path)
+    from lib.utils import parse_project_folder as lib_parse_project_folder
+    return lib_parse_project_folder(folder_path)
 
 
 def replace_supplier_name(supplier_name: str) -> str:
     """Обратная совместимость для нормализации имен поставщиков."""
-    from core import replace_supplier_name as core_replace_supplier_name
-    return core_replace_supplier_name(supplier_name)
+    from lib.utils import replace_supplier_name as lib_replace_supplier_name
+    return lib_replace_supplier_name(supplier_name)
 
 
 def query_openrouter(prompt: str, model: Optional[str] = None) -> str:
     """Обратная совместимость для запросов к LLM."""
-    from llm import LLMClient
+    from lib.llm_client import LLMClient
     client = LLMClient()
     return client.query(prompt, model)
 
 
 def extract_json_from_llm_response(response: str) -> str:
     """Обратная совместимость для извлечения JSON из ответа LLM."""
-    from llm import LLMClient
+    from lib.llm_client import LLMClient
     client = LLMClient()
     json_data = client.extract_json_from_response(response)
     import json

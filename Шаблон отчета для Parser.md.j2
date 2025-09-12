@@ -2,18 +2,18 @@
 
 ### Совпадающие артикулы (с различиями по количеству/единицам)
 {% if matches and matches|length > 0 %}
-{% for m in matches %}
-- **Артикул: {{ m.article }}**
-  - Заявка: {{ m.app_qty }} {{ m.app_unit }}
-  - Счет: {{ m.inv_qty }} {{ m.inv_unit }}
-{% if m.same_qty and m.same_unit %}
+{% for item in matches %}
+- **Артикул: {{ item.article }}**
+  - Заявка: {{ item.app_qty }} {{ item.app_unit }}
+  - Счет: {{ item.inv_qty }} {{ item.inv_unit }}
+{% if item.same_qty and item.same_unit %}
   - Совпадение: Да
-{% elif m.same_qty and not m.same_unit %}
-  - Различие: Единица измерения ({{ m.app_unit }} vs {{ m.inv_unit }})
-{% elif not m.same_qty and m.same_unit %}
-  - Различие: Количество ({{ m.app_qty }} vs {{ m.inv_qty }})
+{% elif item.same_qty and not item.same_unit %}
+  - Различие: Единица измерения ({{ item.app_unit }} vs {{ item.inv_unit }})
+{% elif not item.same_qty and item.same_unit %}
+  - Различие: Количество ({{ item.app_qty }} vs {{ item.inv_qty }})
 {% else %}
-  - Различие: Количество и единица ({{ m.app_qty }} {{ m.app_unit }} vs {{ m.inv_qty }} {{ m.inv_unit }})
+  - Различие: Количество и единица ({{ item.app_qty }} {{ item.app_unit }} vs {{ item.inv_qty }} {{ item.inv_unit }})
 {% endif %}
 
 {% endfor %}
@@ -24,9 +24,9 @@
 
 ### Отсутствует в счете
 {% if only_in_app and only_in_app|length > 0 %}
-{% for a in only_in_app %}
-- **Артикул: {{ a.article }}**
-  - Заявка: {{ a.app_qty }} {{ a.app_unit }}
+{% for item in only_in_app %}
+- **Артикул: {{ item.article }}**
+  - Заявка: {{ item.app_qty }} {{ item.app_unit }}
 
 {% endfor %}
 {% else %}
@@ -36,9 +36,9 @@
 
 ### Отсутствует в заявке
 {% if only_in_inv and only_in_inv|length > 0 %}
-{% for b in only_in_inv %}
-- **Артикул: {{ b.article }}**
-  - Счет: {{ b.inv_qty }} {{ b.inv_unit }}
+{% for item in only_in_inv %}
+- **Артикул: {{ item.article }}**
+  - Счет: {{ item.inv_qty }} {{ item.inv_unit }}
 
 {% endfor %}
 {% else %}

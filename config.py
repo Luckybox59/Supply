@@ -36,7 +36,26 @@ def _load_settings() -> dict:
 _SETTINGS = _load_settings()
 
 
-# Вспомогательная функция получения значения: сначала secrets.json, затем переменные окружения, затем значение по умолчанию
+# Вспомогательная функция получения значения с приоритетом:
+# 1. secrets.json (высший приоритет)
+# 2. Переменные окружения
+# 3. settings.json (для не секретных настроек)
+# 4. Значения по умолчанию
+def _get_setting(name: str, default=None):
+    # Проверяем secrets.json
+    if name in _SECRETS and _SECRETS.get(name) not in (None, ""):
+        return _SECRETS.get(name)
+    # Проверяем переменные окружения
+    env_value = os.getenv(name)
+    if env_value is not None:
+        return env_value
+    # Проверяем settings.json
+    if name.lower() in _SETTINGS:
+        return _SETTINGS.get(name.lower())
+    return default
+
+
+# Функция для обратной совместимости (старый метод _get)
 def _get(name: str, default=None):
     if name in _SECRETS and _SECRETS.get(name) not in (None, ""):
         return _SECRETS.get(name)
@@ -49,7 +68,13 @@ API_BASE_URL: str = _get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1") 
 DEFAULT_MODEL: str = _get("OPENROUTER_MODEL", "qwen/qwen-2.5-72b-instruct:free")  # Модель LLM по умолчанию
 
 # External tools
-POPPLER_PATH: str = _get("POPPLER_PATH", r"D:/Program files/poppler-24.08.0/Library/bin")  # Путь к Poppler
+POPPLER_PATH: str = _get_setting("poppler_path", r"D:/Program files/poppler-24.08.0/Library/bin")  # Путь к Poppler
+
+# Gmail API настройки
+GMAIL_CREDENTIALS_PATH: str = _get_setting("gmail_credentials_path", "gmail_credentials.json")  # Путь к OAuth2 credentials
+GMAIL_TOKEN_PATH: str = _get_setting("gmail_token_path", "gmail_token.json")  # Путь к токену доступа
+USE_GMAIL_API: bool = str(_get_setting("use_gmail_api", "true")).strip().lower() in ("1", "true")  # Использовать Gmail API
+GOOGLE_DOMAINS: list = _get_setting("google_domains", ["gmail.com", "googlemail.com"])  # Домены Google
 
 # SMTP / Email
 SMTP_SERVER: str = _get("SMTP_SERVER", "smtp.gmail.com")  # Сервер SMTP
@@ -66,10 +91,33 @@ APP_TITLE: str = _get("OPENROUTER_APP_TITLE", "ParserGUI")  # Название �
 PARSER_PARALLEL: bool = str(_get("PARSER_PARALLEL", "0")).strip() in ("1", "true", "True")  # Включить параллельную обработку
 
 # Путь к шаблону отчёта (Jinja2). Можно переопределить через secrets.json или ENV.
-REPORT_TEMPLATE_PATH: str = _get(
-    "REPORT_TEMPLATE_PATH",
+REPORT_TEMPLATE_PATH: str = _get_setting(
+    "report_template_path",
     str(Path(__file__).with_name('Шаблон отчета для Parser.md.j2')),
 )
+
+
+def get_template_path() -> str:
+    """Возвращает абсолютный путь к шаблону отчета из корня проекта.
+    
+    Returns:
+        Абсолютный путь к файлу шаблона
+        
+    Raises:
+        FileNotFoundError: Если шаблон не найден в корне проекта
+    """
+    # Всегда берем шаблон из корня проекта (где находится config.py)
+    project_root = Path(__file__).parent
+    template_path = project_root / 'Шаблон отчета для Parser.md.j2'
+    
+    if not template_path.exists():
+        raise FileNotFoundError(
+            f"Шаблон отчета не найден: {template_path}. "
+            "Для генерации отчетов необходим файл 'Шаблон отчета для Parser.md.j2' "
+            "в корневой папке проекта."
+        )
+    
+    return str(template_path)
 
 # Настройки OCR (управляют качеством и скоростью распознавания)
 OCR_DPI: int = int(_get("OCR_DPI", 500))  # DPI при конвертации PDF в изображения
@@ -98,5 +146,10 @@ IMAP_USER: str | None = _get("IMAP_USER", SMTP_USER)  # Пользователь
 IMAP_PASSWORD: str | None = _get("IMAP_PASSWORD", SMTP_PASSWORD)  # Пароль IMAP (по умолчанию как SMTP_PASSWORD)
 
 # Настройки поиска писем
-EMAIL_SEARCH_LIMIT: int = int(_get("EMAIL_SEARCH_LIMIT", 50))  # Максимум писем в результатах
-EMAIL_SEARCH_DAYS: int = int(_get("EMAIL_SEARCH_DAYS", 30))  # Поиск за последние N дней
+EMAIL_SEARCH_LIMIT: int = int(_get_setting("email_search_limit", 50))  # Максимум писем в результатах
+EMAIL_SEARCH_DAYS: int = int(_get_setting("email_search_days", 30))  # Поиск за последние N дней
+
+# GUI настройки
+LOG_LEVEL: str = str(_get_setting("log_level", "INFO")).upper()  # Уровень логирования
+GUI_WINDOW_SIZE: str = str(_get_setting("gui_window_size", "1100x800"))  # Размер окна GUI
+LOG_WIDGET_HEIGHT_PERCENT: int = int(_get_setting("log_widget_height_percent", 25))  # Высота виджета логов в процентах

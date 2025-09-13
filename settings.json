@@ -4,8 +4,6 @@
   "subject_suffix_peredelka": "(#ПЕР)",
   "folder_paid_label": ", Оплата",
   
-  "from_name": "Игорь Бяков",
-  
   "gmail_credentials_path": "gmail_credentials.json",
   "gmail_token_path": "gmail_token.json",
   "use_gmail_api": true,

@@ -162,7 +162,7 @@ class ParserGUI(tk.Tk):
         # 2) Кнопка запуска + выбор модели OpenRouter
         btn_frame = ttk.Frame(left_paned)
         left_paned.add(btn_frame, weight=0)
-        self.run_btn = ttk.Button(btn_frame, text="Запустить обработку (LLM)", command=self._run_processing, state=tk.DISABLED)
+        self.run_btn = ttk.Button(btn_frame, text="Запустить обработку", command=self._run_processing, state=tk.DISABLED)
         self.run_btn.pack(side=tk.LEFT, padx=8, pady=8)
         # Чекбокс: использовать LLM для генерации отчета по шаблону (иначе локально)
         self.use_llm_report_var = tk.BooleanVar(value=False)
@@ -357,8 +357,9 @@ class ParserGUI(tk.Tk):
 
     def _validate_run_button(self):
         inv_checked = [name for name, var in self.inv_var_map.items() if var.get()]
-        # Кнопка обработки активна, если выбран хотя бы один счет
-        self.run_btn.configure(state=(tk.NORMAL if len(inv_checked) > 0 else tk.DISABLED))
+        app_checked = [name for name, var in self.app_var_map.items() if var.get()]
+        # Кнопка обработки активна, если выбран хотя бы один счет или только заявка
+        self.run_btn.configure(state=(tk.NORMAL if (len(inv_checked) > 0 or len(app_checked) > 0) else tk.DISABLED))
 
     def _on_peredelka_toggle(self):
         # Добавляем/убираем суффикс (из настроек) в теме по состоянию чекбокса
@@ -457,6 +458,17 @@ class ParserGUI(tk.Tk):
         self.app_selected = next((name for name, var in self.app_var_map.items() if var.get()), None)
         self.invoices_selected = [name for name, var in self.inv_var_map.items() if var.get()]
 
+        # Проверяем специальный случай: выбран только файл заявки без счетов
+        if self.app_selected and not self.invoices_selected:
+            # Запускаем новую функциональность email для заявки
+            self.run_btn.configure(state=tk.DISABLED)
+            self.send_btn.configure(state=tk.DISABLED)
+            self.report_text.delete("1.0", tk.END)
+            
+            # Запускаем в отдельном потоке
+            threading.Thread(target=self._process_application_only, daemon=True).start()
+            return
+
         # Предварительная проверка: API ключ
         api_key = getattr(config, 'API_KEY', '') or ''
         if not api_key.strip():
@@ -505,6 +517,17 @@ class ParserGUI(tk.Tk):
             self.report_text.insert("1.0", report_content)
 
         messagebox.showinfo("Готово", "Обработка завершена. Проверьте отчет (если был) и поля письма.")
+
+    def _process_application_only(self):
+        """Обрабатывает случай когда выбран только файл заявки."""
+        try:
+            self._populate_email_for_application(self.app_selected)
+            messagebox.showinfo("Готово", "Поля email заполнены. Проверьте и отправьте письмо.")
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Ошибка обработки заявки: {e}")
+        finally:
+            # Повторная валидация кнопок
+            self._validate_run_button()
 
     # ---- Работа с вложениями ----
     def _refresh_attachments_view(self):
@@ -617,13 +640,29 @@ class ParserGUI(tk.Tk):
                         self._logger.info("Отправлено новое письмо")
                     except Exception:
                         pass
-                # Переименование папки заказа: добавить метку "Оплата"
+                
+                # Определяем, является ли это сценарием с одной заявкой
+                # Проверяем, что выбран только файл заявки и не выбраны счета
+                is_application_only = self.app_selected and not self.invoices_selected
+                
+                # Переименование папки заказа в зависимости от сценария
                 try:
-                    self._mark_folder_as_paid()
+                    if is_application_only:
+                        # Для сценария с одной заявкой обновляем статус с именем поставщика
+                        # Извлекаем имя поставщика из имени папки
+                        folder_name = os.path.basename(self.cwd)
+                        if '(' in folder_name:
+                            supplier_name = folder_name.split('(')[0].strip()
+                        else:
+                            supplier_name = folder_name
+                        self._update_folder_status_with_supplier(supplier_name)
+                    else:
+                        # Для обычного сценария (счета) добавляем статус "Оплата"
+                        self._mark_folder_as_paid()
                 except Exception as _e:
                     # Тихо залогируем, но не считаем ошибкой отправки
                     try:
-                        self._logger.warning(f"Не удалось пометить папку как 'Оплата': {_e}")
+                        self._logger.warning(f"Не удалось обновить статус папки: {_e}")
                     except Exception:
                         pass
                 # Сбросить все сформированные данные в окне (кроме лога)
@@ -700,6 +739,101 @@ class ParserGUI(tk.Tk):
             except Exception:
                 pass
         except Exception as e:
+            raise
+
+    def _update_folder_status_with_supplier(self, supplier_name: str):
+        """Обновляет статус папки с именем поставщика.
+        Правило: вставить имя поставщика в скобки после имени папки.
+        Если папка уже содержит статус, заменить его на имя поставщика.
+        Если уже содержит 'Оплата', добавить имя поставщика перед 'Оплата'.
+        Обновляем self.cwd и заголовок окна.
+        """
+        try:
+            t0 = time.perf_counter()
+            cur = Path(self.cwd)
+            name = cur.name
+            
+            # Проверяем, содержит ли папка уже статус с "Оплата"
+            paid = getattr(config, 'FOLDER_PAID_LABEL', 'Оплата') or 'Оплата'
+            has_paid_status = paid in name
+            
+            # Извлекаем базовое имя папки (до первой скобки)
+            if '(' in name:
+                base_name = name.split('(')[0].strip()
+            else:
+                base_name = name
+            
+            # Формируем новое имя папки
+            if has_paid_status:
+                # Если уже есть статус "Оплата", добавляем имя поставщика перед ней
+                # Ищем позицию "Оплата" и вставляем имя поставщика перед ней
+                if ', ' + paid in name:
+                    # Формат: "Имя(что-то, Оплата)" -> "Имя(Поставщик, Оплата)"
+                    # Находим позицию ", Оплата" и заменяем "что-то" на "Поставщик"
+                    idx = name.find(', ' + paid)
+                    if idx != -1:
+                        # Ищем открывающую скобку перед ", Оплата"
+                        open_bracket_idx = name.rfind('(', 0, idx)
+                        if open_bracket_idx != -1:
+                            new_name = name[:open_bracket_idx+1] + supplier_name + ', ' + paid + ')'
+                        else:
+                            new_name = base_name + f'({supplier_name}, {paid})'
+                    else:
+                        new_name = base_name + f'({supplier_name}, {paid})'
+                elif '(' + paid in name:
+                    # Формат: "Имя(Оплата)" -> "Имя(Поставщик, Оплата)"
+                    new_name = name.replace('(' + paid, f'({supplier_name}, {paid}')
+                else:
+                    # Другой формат, просто добавляем имя поставщика
+                    idx = name.rfind(')')
+                    if idx != -1:
+                        new_name = name[:idx] + f', {supplier_name}' + name[idx:]
+                    else:
+                        new_name = name + f'({supplier_name})'
+            else:
+                # Если нет статуса "Оплата", просто добавляем имя поставщика
+                if '(' in name:
+                    # Уже есть скобки, заменяем содержимое на имя поставщика
+                    idx = name.find('(')
+                    new_name = name[:idx] + f'({supplier_name})'
+                else:
+                    # Нет скобок, добавляем их с именем поставщика
+                    new_name = name + f'({supplier_name})'
+            
+            new_path = cur.with_name(new_name)
+            if new_path.exists():
+                # Не перезаписываем существующую папку
+                return
+            
+            # На Windows нельзя переименовать текущую рабочую директорию процесса.
+            # Временно сменим CWD на родительскую, выполним rename, затем перейдем в новую папку.
+            import os as _os
+            orig_proc_cwd = _os.getcwd()
+            try:
+                _os.chdir(str(cur.parent))
+                cur.rename(new_path)
+                # Перейдем в новую директорию (не обязательно, но удобно для относительных путей)
+                _os.chdir(str(new_path))
+            except Exception:
+                # Откатим рабочую директорию процесса
+                try:
+                    _os.chdir(orig_proc_cwd)
+                except Exception:
+                    pass
+                raise
+            
+            # Обновим cwd и заголовок окна в главном потоке
+            self.cwd = str(new_path)
+            self.after(0, lambda: self.title(f"Парсер счетов — GUI — {new_name}"))
+            # Перечитаем файлы и перерисуем списки
+            self.after(0, self._reload_files_and_lists)
+            t1 = time.perf_counter()
+            try:
+                self._logger.info(f"Обновление статуса папки заняло: {t1 - t0:.3f} с")
+            except Exception:
+                pass
+        except Exception as e:
+            self._logger.error(f"Ошибка обновления статуса папки: {e}")
             raise
 
     def _reload_files_and_lists(self):
@@ -797,6 +931,84 @@ class ParserGUI(tk.Tk):
                 pass
         except Exception:
             pass
+    
+    def _populate_email_for_application(self, app_file: str):
+        """
+        Заполняет поля email когда выбран только файл заявки.
+        
+        Args:
+            app_file: Имя файла заявки
+        """
+        try:
+            # Импортируем необходимые функции
+            from lib.utils import parse_project_folder, load_supplier_replacements
+            import os
+            
+            # Получаем имя поставщика из имени папки
+            folder_name = os.path.basename(self.cwd)
+            # Извлекаем имя поставщика до первой открывающей скобки
+            if '(' in folder_name:
+                supplier_name = folder_name.split('(')[0].strip()
+            else:
+                supplier_name = folder_name
+            
+            if not supplier_name:
+                messagebox.showwarning("Ошибка", "Не удалось определить поставщика из имени папки")
+                return
+            
+            # Ищем поставщика в словаре по полю name (новый формат объектов)
+            replacements = load_supplier_replacements()
+            supplier_email = ""
+            normalized_supplier_name = supplier_name
+            
+            for original_name, supplier_info in replacements.items():
+                # Работаем только с новым форматом (объекты с полями name и email)
+                if isinstance(supplier_info, dict):
+                    if supplier_info.get('name', '').strip() == supplier_name:
+                        supplier_email = supplier_info.get('email', '')
+                        normalized_supplier_name = supplier_info.get('name', supplier_name)
+                        break
+            
+            if not supplier_email:
+                self._logger.warning(f"Email для поставщика '{supplier_name}' не найден в словаре")
+                messagebox.showwarning(
+                    "Поставщик не найден", 
+                    f"Email для поставщика '{supplier_name}' не найден в словаре.\n"
+                    "Добавьте email в файл supplier_replacements.json"
+                )
+                return
+            
+            # Извлекаем информацию о проекте из имени папки
+            project_info = parse_project_folder(self.cwd)
+            contract_number = project_info.get('номер_договора', 'не найдено')
+            product_name = project_info.get('изделие', 'не найдено')
+            
+            # Формируем тему письма
+            subject = f"ООО Лис заявка ({contract_number})({product_name})"
+            
+            # Заполняем поля email
+            self.to_entry.delete(0, tk.END)
+            self.to_entry.insert(0, supplier_email)
+            
+            self.subj_entry.delete(0, tk.END)
+            self.subj_entry.insert(0, subject)
+            
+            self.body_text.delete("1.0", tk.END)
+            self.body_text.insert("1.0", "Добрый день, во вложении.")
+            
+            # Добавляем файл заявки как вложение
+            app_path = os.path.join(self.cwd, app_file)
+            self.attachments = [app_path]
+            self._refresh_attachments_view()
+            
+            # Активируем кнопку отправки
+            self.send_btn.configure(state=tk.NORMAL)
+            
+            self._logger.info(f"Поля email заполнены для поставщика: {supplier_name}")
+            
+        except Exception as e:
+            self._logger.error(f"Ошибка заполнения email для заявки: {e}")
+            messagebox.showerror("Ошибка", f"Ошибка заполнения email для заявки: {e}")
     
     # ---- Новые методы для поиска веток в почте ----
     

@@ -122,10 +122,44 @@ def replace_supplier_name(supplier_name: str) -> str:
     
     replacements = load_supplier_replacements()
     replacement = replacements.get(supplier_name, supplier_name)
-    if replacement != supplier_name:
-        logger.debug(f"Заменено имя поставщика: '{supplier_name}' -> '{replacement}'")
     
-    return replacement
+    # Handle both old format (string) and new format (object with name and email)
+    if isinstance(replacement, dict):
+        normalized_name = replacement.get('name', supplier_name)
+        if normalized_name != supplier_name:
+            logger.debug(f"Заменено имя поставщика: '{supplier_name}' -> '{normalized_name}'")
+        return normalized_name
+    else:
+        if replacement != supplier_name:
+            logger.debug(f"Заменено имя поставщика: '{supplier_name}' -> '{replacement}'")
+        return replacement
+
+
+def get_supplier_email(supplier_name: str) -> str:
+    """
+    Получает email поставщика из словаря замен.
+    
+    Args:
+        supplier_name: Имя поставщика
+        
+    Returns:
+        Email поставщика или пустая строка, если не найден
+    """
+    if not supplier_name:
+        return ""
+    
+    replacements = load_supplier_replacements()
+    supplier_info = replacements.get(supplier_name, {})
+    
+    # Handle both old format (string) and new format (object with name and email)
+    if isinstance(supplier_info, dict):
+        email = supplier_info.get('email', '')
+        if email:
+            logger.debug(f"Найден email поставщика: '{supplier_name}' -> '{email}'")
+        return email
+    else:
+        # Old format - no email available
+        return ""
 
 
 # Функции для сравнения данных
